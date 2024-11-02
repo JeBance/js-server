@@ -131,7 +131,7 @@ const requestListener = (async (req, res) => {
 //		console.log(data);
 		if (hasJsonStructure(data) === true) {
 			let request = JSON.parse(data);
-//			console.log(request);
+			console.log(request);
 			if ((request.hasOwnProperty('request') === true)
 			&& (request.hasOwnProperty('signature') === true)) {
 				if (request.request.method == 'sendMessage') {
@@ -141,6 +141,11 @@ const requestListener = (async (req, res) => {
 
 							// у клиента и сервера временно одинаковые ключи
 							const publicKey = await openpgp.readKey({ armoredKey: config['publicKey'] });
+							let passphrase = config['passphrase'];
+							const privateKey = await openpgp.decryptKey({
+								privateKey: await openpgp.readPrivateKey({ armoredKey: config['privateKey'] }), 
+								passphrase
+							});
 /*
 							const cleartextMessage = request.signature;
 							const signedMessage = await openpgp.readCleartextMessage({ cleartextMessage });
@@ -149,7 +154,7 @@ const requestListener = (async (req, res) => {
 								verificationKeys: publicKey
 							});
 */
-							const message = await openpgp.createMessage({ text: JSON.stringify(request.request) });
+							let message = await openpgp.createMessage({ text: JSON.stringify(request.request) });
 							const detachedSignature = request.signature;
 							const signature = await openpgp.readSignature({
 								armoredSignature: detachedSignature // parse detached signature
@@ -170,6 +175,23 @@ const requestListener = (async (req, res) => {
 
 							// записываем сообщение в бд и отправляем идентификатор сообщения
 							// отправляем сообщение пяти нодам
+							//////////////////////////////////
+
+let armoredMessage = request.request.message;
+//console.log(armoredMessage);
+
+message = await openpgp.readMessage({
+	armoredMessage: armoredMessage // parse armored message
+});
+//console.log(encryptedMessage);
+
+const { data: decrypted, signatures } = await openpgp.decrypt({
+	message,
+	verificationKeys: publicKey, // optional
+	decryptionKeys: privateKey
+});
+console.log(decrypted); // 'Hello!'
+
 							//////////////////////////////////
 							res.writeHead(200);
 							res.end(JSON.stringify({result:'Data successfully received'}));

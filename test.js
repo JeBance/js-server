@@ -109,97 +109,8 @@ const checkingKeychain = new Promise((resolve, reject) => {
 		} else {
 			console.log('Keychain available ✔️');
 			console.log();
-
-			(async () => {
-				console.log('Encrypting message...');
-				console.log(data.request);
-				console.log();
-				//let message = JSON.stringify(data.request.message);
-				let passphrase = config['passphrase'];
-				try {
-					const publicKey = await openpgp.readKey({ armoredKey: config['publicKey'] });
-//					console.log(publicKey);
-//					console.log();
-					const privateKey = await openpgp.decryptKey({
-						privateKey: await openpgp.readPrivateKey({ armoredKey: config['privateKey'] }), 
-						passphrase
-					});
-//					console.log(privateKey);
-//					console.log();
-
-					try {
-						const encrypted = await openpgp.encrypt({
-							message: await openpgp.createMessage({ text: data.request.message }),
-							encryptionKeys: publicKey,
-							signingKeys: privateKey
-						});
-//						console.log(encrypted);
-
-						data = {
-							request: {
-								method: 'sendMessage',
-								to: 'Alice',
-								message: encrypted
-								}
-						};
-//						console.log();
-//						console.log(data);
-
-						let signingRequest = JSON.stringify(data.request);
-//						console.log();
-//						console.log(signingRequest);
-/*
-						const unsignedMessage = await openpgp.createCleartextMessage({ text: signingRequest });
-						const cleartextMessage = await openpgp.sign({
-							message: unsignedMessage,
-							signingKeys: privateKey
-						});
-//						console.log(cleartextMessage);
-*/
-						const message = await openpgp.createMessage({ text: signingRequest });
-						const detachedSignature = await openpgp.sign({
-							message, // Message object
-							signingKeys: privateKey,
-							detached: true
-						});
-						console.log(detachedSignature);
-
-						data = {
-							request: {
-								method: 'sendMessage',
-								to: 'Alice',
-								message: encrypted
-								},
-//							signature: cleartextMessage
-							signature: detachedSignature
-						};
-
-						jsonData = JSON.stringify(data);
-//						console.log();
-//						console.log(jsonData);
-
-options = {
-	host: 'localhost',
-	port: 8000,
-	path: '/',
-	method: 'POST',
-	headers: {
-		'Content-Type': 'application/json',
-		'Content-Length': jsonData.length
-	}
-};
-
-					} catch(e) {
-						console.log('Не удалось зашифровать сообщение!\n',  e);
-					}
-				} catch(e) {
-					console.log('Не удалось прочитать публичный ключ получателя!\n',  e);
-				}
-
-//				console.log('Signing request...');
-
-				resolve(true);
-			})();
+			console.log(data.request);
+			resolve(true);
 		}
 	} catch (err) {
 		console.error('\x1b[1m%s\x1b[0m', `Failed to create keychain: ${err}`);
@@ -208,9 +119,102 @@ options = {
 
 });
 
+let encryptMessage = (async () => {
+	data = {
+		request: {
+			method: 'sendMessage',
+			to: 'Alice',
+			message: 'Hello!'
+			}
+	};
+	console.log();
+	console.log('Encrypting message...');
+	//let message = JSON.stringify(data.request.message);
+	let passphrase = config['passphrase'];
+	try {
+		const publicKey = await openpgp.readKey({ armoredKey: config['publicKey'] });
+//		console.log(publicKey);
+//		console.log();
+		const privateKey = await openpgp.decryptKey({
+			privateKey: await openpgp.readPrivateKey({ armoredKey: config['privateKey'] }), 
+			passphrase
+		});
+//		console.log(privateKey);
+//		console.log();
+
+		try {
+			const encrypted = await openpgp.encrypt({
+				message: await openpgp.createMessage({ text: data.request.message }),
+				encryptionKeys: publicKey,
+				signingKeys: privateKey
+			});
+//			console.log(encrypted);
+
+			let nonce = new Date().getTime();
+			data.request.message = encrypted;
+			data.request.nonce = nonce;
+
+//			console.log();
+//			console.log(data);
+
+			console.log();
+			console.log('Signing request...');
+			let signingRequest = JSON.stringify(data.request);
+//			console.log();
+//			console.log(signingRequest);
+/*
+			const unsignedMessage = await openpgp.createCleartextMessage({ text: signingRequest });
+			const cleartextMessage = await openpgp.sign({
+				message: unsignedMessage,
+				signingKeys: privateKey
+			});
+//			console.log(cleartextMessage);
+*/
+			const message = await openpgp.createMessage({ text: signingRequest });
+			const detachedSignature = await openpgp.sign({
+				message, // Message object
+				signingKeys: privateKey,
+				detached: true
+			});
+//			console.log(detachedSignature);
+
+//			data.signature = cleartextMessage;
+			data.signature = detachedSignature;
+
+			jsonData = JSON.stringify(data);
+//			console.log();
+//			console.log(jsonData);
+
+			options = {
+				host: 'localhost',
+				port: 8000,
+				path: '/',
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Content-Length': jsonData.length
+				}
+			};
+
+		} catch(e) {
+			console.log('Не удалось зашифровать сообщение!\n',  e);
+		}
+	} catch(e) {
+		console.log('Не удалось прочитать публичный ключ получателя!\n',  e);
+	}
+
+});
+
+
 checkingKeychain
 	.then((value) => {
 		let timerId = setInterval(async () => {
+
+			await encryptMessage();
+
+			console.log();
+			console.log('Sending request...');
+			console.log();
 
 			const req = http.request(options, (res) => {
 				console.log(`statusCode: ${res.statusCode}`)
@@ -226,6 +230,6 @@ checkingKeychain
 			req.write(jsonData)
 			req.end()
 
-		}, 10000);
+		}, 5000);
 	})
 
