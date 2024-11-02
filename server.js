@@ -4,12 +4,15 @@ const http = require('http');
 const openpgp = require('openpgp');
 const process = require('process');
 const readline = require('readline');
-const nzlib = require('nzlib');
-//import nzlib from "https://code4fukui.github.io/minimalistic-assert/index.js";
 
 const paramUsername = process.argv[2];
 const paramEmail = process.argv[3];
 const paramPassphrase = process.argv[4];
+// when you generate keychain
+// if you see:
+// error:25066067:DSO support routines:dlfcn_load:could not load the shared library
+// then run:
+// export OPENSSL_CONF=/dev/null
 
 let existsFileConfig = true;
 let existsDirDB = true;
@@ -17,9 +20,26 @@ let config;
 let indexFile;
 let faviconFile;
 
+hasJsonStructure = function hasJsonStructure(str) {
+	if (typeof str !== 'string') return false;
+	try {
+		const result = JSON.parse(str);
+		const type = Object.prototype.toString.call(result);
+		return type === '[object Object]' 
+			|| type === '[object Array]';
+	} catch (err) {
+		return false;
+	}
+}
 
-
-
+HMAC = async function HMAC(key, message) {
+	const g = str => new Uint8Array([...unescape(encodeURIComponent(str))].map(c => c.charCodeAt(0))),
+	k = g(key),
+	m = g(message),
+	c = await crypto.subtle.importKey('raw', k, { name: 'HMAC', hash: 'SHA-512' }, true, ['sign']),
+	s = await crypto.subtle.sign('HMAC', c, m);
+	return btoa(String.fromCharCode(...new Uint8Array(s)))
+}
 
 process.stdout.write('\x1Bc');
 console.log('VERSION: ' + VERSION);
@@ -51,7 +71,7 @@ console.log();
 try {
 	console.log('Checking "config.json" file...');
 	let contents = fs.readFileSync(__dirname + '/config.json');
-	if (nzlib.hasJsonStructure(contents.toString()) === true) {
+	if (hasJsonStructure(contents.toString()) === true) {
 		config = JSON.parse(contents);
 		console.log('\x1b[1m%s\x1b[0m', '"config.json" has been read ✔️');
 //		console.log(config);
@@ -80,7 +100,7 @@ console.log();
 try {
 	console.log('Checking DB directory...');
 	let statsDB = fs.statSync(__dirname + config['DB']);
-    console.log('\x1b[1m%s\x1b[0m', 'DB directory exists ✔️');
+	console.log('\x1b[1m%s\x1b[0m', 'DB directory exists ✔️');
 } catch (err) {
 	console.log('DB directory is missing ❌');
 	existsDirDB = false;
@@ -97,7 +117,7 @@ if (existsDirDB === false) try {
 console.log();
 
 const requestListener = (async (req, res) => {
-	console.log('\x1b[2m%s\x1b[0m', req.method, req.url);
+//	console.log('\x1b[2m%s\x1b[0m', req.method, req.url);
 	res.setHeader('Content-Type', 'application/json');
 
 	if (req.method == 'POST') {
@@ -108,26 +128,64 @@ const requestListener = (async (req, res) => {
 		}
 
 		const data = Buffer.concat(buffers).toString();
-		console.log(data);
-		if (nzlib.hasJsonStructure(data) === true) {
+//		console.log(data);
+		if (hasJsonStructure(data) === true) {
 			let request = JSON.parse(data);
-			console.log(request);
+//			console.log(request);
 			if ((request.hasOwnProperty('request') === true)
 			&& (request.hasOwnProperty('signature') === true)) {
-				if (request.request == 'sendMessage') {
-					if ((request.hasOwnProperty('from') === true)
-					&& (request.hasOwnProperty('to') === true)) {
-						// записываем сообщение в бд и отправляем идентификатор сообщения
-						// отправляем сообщение пяти нодам
+				if (request.request.method == 'sendMessage') {
+					if (request.request.hasOwnProperty('to') === true) {
+						if (request.request.hasOwnProperty('message') === true) {
+							// проверяем сообщение
+
+							// у клиента и сервера временно одинаковые ключи
+							const publicKey = await openpgp.readKey({ armoredKey: config['publicKey'] });
+/*
+							const cleartextMessage = request.signature;
+							const signedMessage = await openpgp.readCleartextMessage({ cleartextMessage });
+							const verificationResult = await openpgp.verify({
+								message: signedMessage,
+								verificationKeys: publicKey
+							});
+*/
+							const message = await openpgp.createMessage({ text: JSON.stringify(request.request) });
+							const detachedSignature = request.signature;
+							const signature = await openpgp.readSignature({
+								armoredSignature: detachedSignature // parse detached signature
+							});
+							const verificationResult = await openpgp.verify({
+								message, // Message object
+								signature,
+								verificationKeys: publicKey
+							});
+
+							const { verified, keyID } = verificationResult.signatures[0];
+							try {
+								await verified; // throws on invalid signature
+								console.log('Signed by key id ' + keyID.toHex());
+							} catch (e) {
+								throw new Error('Signature could not be verified: ' + e.message);
+							}
+
+							// записываем сообщение в бд и отправляем идентификатор сообщения
+							// отправляем сообщение пяти нодам
+							//////////////////////////////////
+							res.writeHead(200);
+							res.end(JSON.stringify({result:'Data successfully received'}));
+						} else {
+							res.writeHead(500);
+							res.end(JSON.stringify({error:'Invalid request: "Message missing"'}));
+						}
 					} else {
 						res.writeHead(500);
-						res.end(JSON.stringify({error:'Invalid request'}));
+						res.end(JSON.stringify({error:'Invalid request: "Recipient not specified"'}));
 					}
-				} else if (request.request == 'getNewMessage') {
+				} else if (request.request.method == 'getNewMessage') {
 					// проверяем подпись клиента и отдаём его сообщения
 					res.writeHead(200);
 					res.end(JSON.stringify({result:'Data successfully received'}));
-				} else if (request.request == 'deleteMessage') {
+				} else if (request.request.method == 'deleteMessage') {
 					if (request.hasOwnProperty('messages') === true) {
 						// проверяем подпись клиента и удаляем массив сообщений
 						// отправляем сообщение пяти нодам
@@ -137,7 +195,7 @@ const requestListener = (async (req, res) => {
 					}
 				} else {
 					res.writeHead(500);
-					res.end(JSON.stringify({error:'Invalid request'}));
+					res.end(JSON.stringify({error:'Invalid request: "Unknown method"'}));
 				}
 /*
 				try {
@@ -159,11 +217,11 @@ const requestListener = (async (req, res) => {
 */
 			} else {
 				res.writeHead(500);
-				res.end(JSON.stringify({error:'Invalid request'}));
+				res.end(JSON.stringify({error:'Invalid request: "One of the parameters is missing: request or signature"'}));
 			}
 		} else {
 			res.writeHead(500);
-			res.end(JSON.stringify({error:'Invalid request'}));
+			res.end(JSON.stringify({error:'Invalid request: "The request does not have a JSON structure"'}));
 		}
 
 	} else {
@@ -261,7 +319,7 @@ checkingKeychain
 	})
 
 /*
-nzlib.HMAC('567890', 'Hello!')
+HMAC('567890', 'Hello!')
 	.then((value) => {
 		console.log(value);
 	})
