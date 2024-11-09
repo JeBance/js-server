@@ -1,9 +1,13 @@
 const VERSION = '0.3.15';
 const fs = require('fs');
 const http = require('http');
-const openpgp = require('openpgp');
+const URL = require('url');
 const process = require('process');
-const readline = require('readline');
+const { networkInterfaces } = require('os');
+const securePGPstorage = require('secure-pgp-storage');
+const letsconfig = require('letsconfig');
+const nzfunc = require('nzfunc');
+const nzfsdb = require('nzfsdb');
 
 const paramUsername = process.argv[2];
 const paramEmail = process.argv[3];
@@ -14,109 +18,58 @@ const paramPassphrase = process.argv[4];
 // then run:
 // export OPENSSL_CONF=/dev/null
 
-let existsFileConfig = true;
-let existsDirDB = true;
-let config;
-let indexFile;
-let faviconFile;
-
-hasJsonStructure = function hasJsonStructure(str) {
-	if (typeof str !== 'string') return false;
-	try {
-		const result = JSON.parse(str);
-		const type = Object.prototype.toString.call(result);
-		return type === '[object Object]' 
-			|| type === '[object Array]';
-	} catch (err) {
-		return false;
-	}
-}
-
-HMAC = async function HMAC(key, message) {
-	const g = str => new Uint8Array([...unescape(encodeURIComponent(str))].map(c => c.charCodeAt(0))),
-	k = g(key),
-	m = g(message),
-	c = await crypto.subtle.importKey('raw', k, { name: 'HMAC', hash: 'SHA-512' }, true, ['sign']),
-	s = await crypto.subtle.sign('HMAC', c, m);
-	return btoa(String.fromCharCode(...new Uint8Array(s)))
-}
-
 process.stdout.write('\x1Bc');
+console.log('\x1b[7m%s\x1b[0m', `nzserver`);
 console.log('VERSION: ' + VERSION);
 console.log(process.platform + '/' + process.arch);
 console.log('pid ' + process.ppid);
-console.log();
+
+const sPGPs = new securePGPstorage();
+
+const config = new letsconfig({
+	host: '127.0.0.1',
+	port: 28262,
+	DB: '/DB/',
+	passphrase: null,
+	secureKey: null,
+	lastCheckedMessage: '0'
+}, __dirname + '/');
+
+const DB = new nzfsdb(__dirname + config.DB);
+if (!DB.checkExists()) process.exit(1);
+
+let knownNodes = JSON.parse(DB.read(null, 'nodes.json'));
+// {"96c3a2e45d53a7c5":{"url":"127.0.0.1:28262","ping":4},"85c2a1e34d42a6c4":{"url":"http://google.com:28262","ping":26}}
+if (!knownNodes) knownNodes = {};
+
+let knownMessages = JSON.parse(DB.read(null, 'messages.json'));
+// {"0f796b91e999447860b8dab1efb1af72":1731149821909,"f6c45a2fe5f5c9f7678e1b49dc4238e9":1731150123697}
+if (!knownMessages) knownMessages = {};
+
+let indexFile;
+let faviconFile;
 
 try {
 	console.log('Checking "index.html" file...');
 	indexFile = fs.readFileSync(__dirname + '/index.html');
 	console.log('\x1b[1m%s\x1b[0m', '"index.html" has been read ✔️');
-} catch (err) {
-	console.error('\x1b[1m%s\x1b[0m', `Could not read index.html file: ${err}`);
+} catch(e) {
+	console.error('\x1b[1m%s\x1b[0m', `Could not read index.html file: ${e}`);
 	process.exit(1);
 }
-
-console.log();
 
 try {
 	console.log('Checking "favicon.ico" file...');
 	faviconFile = fs.readFileSync(__dirname + '/favicon.ico');
 	console.log('\x1b[1m%s\x1b[0m', '"favicon.ico" has been read ✔️');
-} catch (err) {
-	console.error('\x1b[1m%s\x1b[0m', `Could not read favicon.ico file: ${err}`);
+} catch(e) {
+	console.error('\x1b[1m%s\x1b[0m', `Could not read favicon.ico file: ${e}`);
 }
 
-console.log();
 
-try {
-	console.log('Checking "config.json" file...');
-	let contents = fs.readFileSync(__dirname + '/config.json');
-	if (hasJsonStructure(contents.toString()) === true) {
-		config = JSON.parse(contents);
-		console.log('\x1b[1m%s\x1b[0m', '"config.json" has been read ✔️');
-//		console.log(config);
-	} else {
-		existsFileConfig = false;
-	}
-} catch (err) {
-	console.error(`Could not read config.json file: ${err}`);
-	existsFileConfig = false;
-}
-
-if (existsFileConfig === false) try {
-	config = {host:'localhost',port:8000,DB:'/DB/',fingerprint:null,passphrase:null,publicKey:null,privateKey:null};
-	fs.writeFileSync(__dirname + '/config.json', JSON.stringify(config));
-	let contents = fs.readFileSync(__dirname + '/config.json');
-	config = JSON.parse(contents);
-	console.log('\x1b[1m%s\x1b[0m', '"config.json" was generated successfully ✔️');
-//	console.log(config);
-} catch (err) {
-	console.error(`Could not read config.json file: ${err}`);
-	process.exit(1);
-}
-
-console.log();
-
-try {
-	console.log('Checking DB directory...');
-	let statsDB = fs.statSync(__dirname + config['DB']);
-	console.log('\x1b[1m%s\x1b[0m', 'DB directory exists ✔️');
-} catch (err) {
-	console.log('DB directory is missing ❌');
-	existsDirDB = false;
-}
-
-if (existsDirDB === false) try {
-	fs.mkdirSync(__dirname + config['DB']);
-	console.log('\x1b[1m%s\x1b[0m', 'Directory successfully created ✔️');
-	existsDirDB = true;
-} catch (err) {
-	console.error('\x1b[1m%s\x1b[0m', `Failed to create directory: ${err}`);
-}
-
-console.log();
 
 const requestListener = (async (req, res) => {
+	let nonce = new Date().getTime();
 //	console.log('\x1b[2m%s\x1b[0m', req.method, req.url);
 	res.setHeader('Content-Type', 'application/json');
 
@@ -126,129 +79,134 @@ const requestListener = (async (req, res) => {
 		for await (const chunk of req) {
 			buffers.push(chunk);
 		}
-
 		const data = Buffer.concat(buffers).toString();
-//		console.log(data);
-		if (hasJsonStructure(data) === true) {
-			let request = JSON.parse(data);
-			console.log(request);
-			if ((request.hasOwnProperty('request') === true)
-			&& (request.hasOwnProperty('signature') === true)) {
-				if (request.request.method == 'sendMessage') {
-					if (request.request.hasOwnProperty('to') === true) {
-						if (request.request.hasOwnProperty('message') === true) {
-							// проверяем сообщение
+		let hash = nzfunc.getHASH(data, 'md5');
 
-							// у клиента и сервера временно одинаковые ключи
-							const publicKey = await openpgp.readKey({ armoredKey: config['publicKey'] });
-							let passphrase = config['passphrase'];
-							const privateKey = await openpgp.decryptKey({
-								privateKey: await openpgp.readPrivateKey({ armoredKey: config['privateKey'] }), 
-								passphrase
-							});
-/*
-							const cleartextMessage = request.signature;
-							const signedMessage = await openpgp.readCleartextMessage({ cleartextMessage });
-							const verificationResult = await openpgp.verify({
-								message: signedMessage,
-								verificationKeys: publicKey
-							});
-*/
-							let message = await openpgp.createMessage({ text: JSON.stringify(request.request) });
-							const detachedSignature = request.signature;
-							const signature = await openpgp.readSignature({
-								armoredSignature: detachedSignature // parse detached signature
-							});
-							const verificationResult = await openpgp.verify({
-								message, // Message object
-								signature,
-								verificationKeys: publicKey
-							});
+		// command messages
+		if (nzfunc.hasJsonStructure(data) === true) {
+			res.writeHead(200);
+			res.end(JSON.stringify({result:'Data successfully received'}));
+			req = JSON.parse(data);
 
-							const { verified, keyID } = verificationResult.signatures[0];
-							try {
-								await verified; // throws on invalid signature
-								console.log('Signed by key id ' + keyID.toHex());
-							} catch (e) {
-								throw new Error('Signature could not be verified: ' + e.message);
+			// handshake
+			if (req.hasOwnProperty('handshake') === true) {
+				let decrypted = await sPGPs.decryptMessage(req.handshake);
+				if (decrypted) try {
+					let senderKeyID, senderPublicKeyArmored;
+					senderKeyID = decrypted.signatures[0].keyID.toHex();
+					if (knownNodes[senderKeyID]) {
+						senderPublicKeyArmored = DB.read('nodes', senderKeyID);
+						decrypted = await sPGPs.decryptMessage(req.handshake, senderPublicKeyArmored);
+						await decrypted.signatures[0].verified; // throws on invalid signature
+					}
+					// update node key
+					if (nzfunc.hasJsonStructure(decrypted.data) === true) {
+						decrypted = JSON.parse(decrypted.data);
+						if ((decrypted.hasOwnProperty('url') === true)
+						&& ((nzfunc.isUrlValid(decrypted.url))
+						|| (nzfunc.isIPv4withTCPportValid(decrypted.url)))) {
+							let addr = parseAddr(decrypted.url);
+							if (addr) {
+								let options = {
+									host: addr.host,
+									port: addr.port,
+									path: '/info',
+									method: 'GET'
+								};
+								let pingStart = new Date().getTime();
+								let res = await nzfunc.doRequest(options);
+								if (res.statusCode == 200) {
+									let pingFinish = new Date().getTime();
+									let pingTime = pingFinish - pingStart;
+									let infoServer = JSON.parse(await nzfunc.getResponse(res));
+									if (infoServer.publicKey) {
+										let key = await sPGPs.readKey(infoServer.publicKey);
+										if (key) {
+											newSenderKeyID = key.getKeyID().toHex();
+											if ((knownNodes[senderKeyID])
+											&& (senderKeyID !== newSenderKeyID)) {
+												DB.delete('nodes', senderKeyID);
+												delete knownNodes[senderKeyID];
+												console.log('\x1b[1m%s\x1b[0m', 'Delete node:', senderKeyID, knownNodes[senderKeyID].url, `(${pingTime} ms)`);
+											}
+											if (((knownNodes[senderKeyID])
+											&& (senderKeyID !== newSenderKeyID)) || (!knownNodes[senderKeyID])) {
+												DB.write('nodes', newSenderKeyID, infoServer.publicKey);
+												knownNodes[newSenderKeyID] = {
+													url: decrypted.url,
+													ping: pingTime
+												};
+												console.log('\x1b[1m%s\x1b[0m', 'New node:', newSenderKeyID, decrypted.url, `(${pingTime} ms)`);
+												DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+											}
+										}
+									}
+								}
 							}
-
-							// записываем сообщение в бд и отправляем идентификатор сообщения
-							// отправляем сообщение пяти нодам
-							//////////////////////////////////
-
-let armoredMessage = request.request.message;
-//console.log(armoredMessage);
-
-message = await openpgp.readMessage({
-	armoredMessage: armoredMessage // parse armored message
-});
-//console.log(encryptedMessage);
-
-const { data: decrypted, signatures } = await openpgp.decrypt({
-	message,
-	verificationKeys: publicKey, // optional
-	decryptionKeys: privateKey
-});
-console.log(decrypted); // 'Hello!'
-
-							//////////////////////////////////
-							res.writeHead(200);
-							res.end(JSON.stringify({result:'Data successfully received'}));
-						} else {
-							res.writeHead(500);
-							res.end(JSON.stringify({error:'Invalid request: "Message missing"'}));
 						}
-					} else {
-						res.writeHead(500);
-						res.end(JSON.stringify({error:'Invalid request: "Recipient not specified"'}));
 					}
-				} else if (request.request.method == 'getNewMessage') {
-					// проверяем подпись клиента и отдаём его сообщения
-					res.writeHead(200);
-					res.end(JSON.stringify({result:'Data successfully received'}));
-				} else if (request.request.method == 'deleteMessage') {
-					if (request.hasOwnProperty('messages') === true) {
-						// проверяем подпись клиента и удаляем массив сообщений
-						// отправляем сообщение пяти нодам
-					} else {
-						res.writeHead(500);
-						res.end(JSON.stringify({error:'Invalid request'}));
-					}
-				} else {
-					res.writeHead(500);
-					res.end(JSON.stringify({error:'Invalid request: "Unknown method"'}));
-				}
-/*
-				try {
-					const message = await openpgp.readMessage({ armoredMessage: request.request });
-					console.log(message);
-					const { data: decrypted, signatures } = await openpgp.decrypt({
-						message,
-						verificationKeys: config['publicKey'],
-						decryptionKeys: config['privateKey']
-					});
-					console.log('decrypted' + decrypted);
-					console.log('signatures' + signatures);
-					await signatures[0].verified;
-					let decodedJSON = JSON.parse(decrypted);
-					console.log(decodedJSON);
 				} catch(e) {
 					console.log(e);
 				}
-*/
-			} else {
-				res.writeHead(500);
-				res.end(JSON.stringify({error:'Invalid request: "One of the parameters is missing: request or signature"'}));
+
+			// newMessage
+			} else if ((req.hasOwnProperty('newMessage') === true)
+			&& (req.newMessage.hasOwnProperty('hash') === true)
+			&& (req.newMessage.hasOwnProperty('message') === true)
+			&& (req.newMessage.hasOwnProperty('timestamp') === true)
+			&& ((await DB.validateName(req.newMessage.hash)) === true)
+			&& (Number.isInteger(req.newMessage.timestamp))
+			&& (!knownMessages[req.newMessage.hash])) {
+				let currentTime = new Date().getTime();
+				if (((await sPGPs.checkMessage(req.newMessage.message)) === true)
+				&& (req.newMessage.timestamp > (currentTime - 900000))
+				&& (req.newMessage.timestamp < currentTime)) {
+					knownMessages[req.newMessage.hash] = req.newMessage.timestamp;
+					DB.write('messages', req.newMessage.hash, req.newMessage.message);
+					DB.write(null, 'messages.json', JSON.stringify(knownMessages));
+					passMessageAllNodes({
+						newMessage: {
+							hash: req.newMessage.hash,
+							timestamp: req.newMessage.timestamp,
+							message: req.newMessage.message
+						}
+					});
+				}
 			}
+
+		// encrypted messages
+		} else if ((await sPGPs.checkMessage(data)) === true) {
+			res.writeHead(200);
+			res.end(JSON.stringify({result:'Data successfully received'}));
+			if (!knownMessages[hash]) {
+				knownMessages[hash] = nonce;
+				DB.write('messages', hash, data);
+				DB.write(null, 'messages.json', JSON.stringify(knownMessages));
+				passMessageAllNodes({
+					newMessage: {
+						hash: hash,
+						timestamp: nonce,
+						message: data
+					}
+				});
+			}
+
 		} else {
 			res.writeHead(500);
-			res.end(JSON.stringify({error:'Invalid request: "The request does not have a JSON structure"'}));
+			res.end(JSON.stringify({error:'Invalid request'}));
 		}
 
 	} else {
 
-		switch (req.url) {
+		let url = (req.url).split('?');
+		let args = {};
+		if (typeof url[1] === 'string') {
+			args = url[1].split('&');
+		} else {
+			args = false;
+		}
+
+		switch (url[0]) {
 			case '/':
 			case '/index.html':
 				res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'});
@@ -260,13 +218,34 @@ console.log(decrypted); // 'Hello!'
 				break
 			case '/info':
 				let info = JSON.stringify({
-					host: config['host'],
-					port: config['port'],
-					fingerprint: config['fingerprint'],
-					publicKey: config['publicKey']
+					host: config.host,
+					port: config.port,
+					fingerprint: sPGPs.fingerprint,
+					publicKey: sPGPs.publicKeyArmored
 				});
 				res.writeHead(200);
 				res.end(info);
+				break
+			case '/getNodes':
+				res.writeHead(200);
+				res.end(JSON.stringify(knownNodes));
+				break
+			case '/getMessages':
+				res.writeHead(200);
+				res.end(JSON.stringify(knownMessages));
+				break
+			case '/getMessage':
+				try {
+					if ((args[0]) && (knownMessages[args[0]])) {
+						res.writeHead(200);
+						res.end(DB.read('messages', args[0]));
+					} else {
+						throw new Error();
+					}
+				} catch(e) {
+					res.writeHead(404);
+					res.end(JSON.stringify({error:'Resource not found'}));
+				}
 				break
 			default:
 				res.writeHead(404);
@@ -278,71 +257,252 @@ console.log(decrypted); // 'Hello!'
 //	console.log('\x1b[2m%s\x1b[0m', res.getHeaders());
 });
 
+
+
 const server = http.createServer(requestListener);
 
+
+
 const checkingKeychain = new Promise((resolve, reject) => {
-	console.log('Checking keychain...')
-
 	try {
-		if ((config['fingerprint'] == null)
-		|| (config['passphrase'] == null)
-		|| (config['publicKey'] == null)
-		|| (config['privateKey'] == null)) {
-			console.log('\x1b[1m%s\x1b[0m', 'Missing keychain ❌');
-
+		(async () => {
 			if ((paramUsername != null && typeof paramUsername !== "undefined")
 			|| (paramEmail != null && typeof paramEmail !== "undefined")
 			|| (paramPassphrase != null && typeof paramPassphrase !== "undefined")) {
 				console.log('Generate keychain...');
 
 				(async () => {
-					const { privateKey, publicKey } = await openpgp.generateKey({
-						type: 'rsa', // Type of the key
-						rsaBits: 4096, // RSA key size (defaults to 4096 bits)
-						userIDs: [{ name: paramUsername, email: paramEmail }], // you can pass multiple user IDs
-						passphrase: paramPassphrase // protects the private key
-					});
-
-					pubKey = await openpgp.readKey({ armoredKey: publicKey });
-					config['fingerprint'] = (pubKey.getFingerprint()).toUpperCase();
-					config['passphrase'] = paramPassphrase;
-					config['publicKey'] = publicKey;
+					await sPGPs.createStorage(paramUsername, paramEmail, paramPassphrase);
 					console.log('publicKey generated successfully ✔️');
-					config['privateKey'] = privateKey;
 					console.log('privateKey generated successfully ✔️');
-					fs.writeFileSync(__dirname + '/config.json', JSON.stringify(config));
+					config.passphrase = paramPassphrase;
+					let encryptedStorage = await sPGPs.encryptStorage();
+					config.secureKey = encryptedStorage;
+					config.writeConfigFile();
 					console.log('Keychain saved successfully ✔️');
-					console.log();
 					resolve(true);
 				})();
 
 			} else {
-				console.error('\x1b[1m%s\x1b[0m', 'Run the server with the Nickname, Email and Passphrase parameters. For example, "node server.js MyNickname MyName@somemail.com MyPassphrase".');
-				process.exit(1);
-			}
 
-		} else {
-			console.log('Keychain available ✔️');
-			console.log();
-			resolve(true);
-		}
-	} catch (err) {
-		console.error('\x1b[1m%s\x1b[0m', `Failed to create keychain: ${err}`);
+				console.log('Checking keychain...')
+				if ((await sPGPs.checkMessage(config.secureKey))
+				&& (await sPGPs.decryptStorage(config.secureKey, config.passphrase))) {
+					console.log('Keychain available ✔️');
+					resolve(true);
+				} else {
+					console.log('\x1b[1m%s\x1b[0m', 'Missing keychain ❌');
+					console.error('\x1b[1m%s\x1b[0m', 'Run the server with the Nickname, Email and Passphrase parameters. For example, "node server.js MyNickname MyName@somemail.com MyPassphrase".');
+					process.exit(1);
+				}
+
+			}
+		})();
+	} catch(e) {
+		console.error('\x1b[1m%s\x1b[0m', `Failed to create keychain: ${e}`);
 		process.exit(1);
 	}
-
 });
+
+
 
 checkingKeychain
 	.then((value) => {
-		server.listen(config['port'], config['host'], () => {
-			console.log('\x1b[7m%s\x1b[0m', `Server is running on http://${config['host']}:${config['port']}`);
+		server.listen(config.port, config.host, () => {
+			console.log('\x1b[7m%s\x1b[0m', `Server is running on http://${config.host}:${config.port}`);
 		});
 	})
 
-/*
-HMAC('567890', 'Hello!')
-	.then((value) => {
-		console.log(value);
-	})
-*/
+
+
+let checkingMessages = setInterval(async () => {
+	let currentTime = new Date().getTime();
+	let keys = Object.keys(knownMessages);
+	for (let i = 0, l = keys.length; i < l; i++) {
+		if (knownMessages[keys[i]] < (currentTime - 900000)) {	// 15 min
+			// deleting old messages
+			DB.delete('messages', knownMessages[keys[i]]);
+			delete knownMessages[keys[i]]
+		}
+	}
+}, 10000);
+
+
+
+let checkingNodes = setInterval(async () => {
+	let addr = {};
+	let options = {
+		host: '',
+		port: '',
+		path: '/info',
+		method: 'GET'
+	};
+	let publicKeyArmored = '';
+	let keys = Object.keys(knownNodes);
+
+	for (let i = 0, l = keys.length; i < l; i++) {
+		addr = parseAddr(knownNodes[keys[i]].url)
+		options.host = addr.host;
+		options.port = addr.port;
+		let pingStart = new Date().getTime();
+		let res = await nzfunc.doRequest(options);
+		if (res.statusCode == 200) {
+			let pingFinish = new Date().getTime();
+			let pingTime = pingFinish - pingStart;
+			let infoServer = JSON.parse(await nzfunc.getResponse(res));
+			publicKeyArmored = DB.read('nodes', keys[i]);
+			if ((infoServer.publicKey) && (infoServer.publicKey === publicKeyArmored)) {
+				knownNodes[keys[i]].ping = pingTime;
+			} else {
+				console.log('\x1b[1m%s\x1b[0m', 'Node removed:', keys[i], knownNodes[keys[i]].url);
+				DB.delete('nodes', keys[i]);
+				delete knownNodes[keys[i]];
+				DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+			}
+		}
+
+	}
+}, 10000);
+
+
+
+let searchingNodes = setInterval(async () => {
+	const nets = networkInterfaces();
+//	console.log(nets);
+	const results = {}; // Or just '{}', an empty object
+
+	for (const name of Object.keys(nets)) {
+		for (const net of nets[name]) {
+			// Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+			// 'IPv4' is in Node <= 17, from 18 it's a number 4 or 6
+			const familyV4Value = typeof net.family === 'string' ? 'IPv4' : 4
+			if (net.family === familyV4Value && !net.internal) {
+				if (!results[name]) {
+					results[name] = [];
+				}
+				results[name].push(net.address);
+				await pingAddresses(net.address);
+			}
+		}
+	}
+
+	console.log(results);
+
+}, 5000);
+
+
+
+let pingAddresses = async (address) => {
+	let addr = address.split('.');
+	let options = {
+		host: '',
+		port: '',
+		path: '/info',
+		method: 'GET'
+	};
+	let publicKeyArmored = '';
+	try {
+		for (let i = 1, l = 255; i < l; i++) {
+			options.host = addr[0] + '.' + addr[1] + '.' + addr[2] + '.' + l;
+			options.port = '28262';
+			var pingStart = new Date().getTime();
+			var res = await nzfunc.doRequest(options);
+			if (res.statusCode == 200) {
+				var pingFinish = new Date().getTime();
+				var pingTime = pingFinish - pingStart;
+				var infoNode = JSON.parse(await nzfunc.getResponse(res));
+				if (infoNode.publicKey) {
+					var key = await sPGPs.readKey(infoNode.publicKey);
+					if (key) {
+						nodeKeyID = key.getKeyID().toHex();
+						if (knownNodes[nodeKeyID]) {
+							publicKeyArmored = DB.read('nodes', nodeKeyID);
+							if (publicKeyArmored === infoNode.publicKey) {
+								knownNodes[nodeKeyID].ping = pingTime;
+							} else {
+								console.log('\x1b[1m%s\x1b[0m', 'Node removed:', nodeKeyID, knownNodes[nodeKeyID].url);
+								DB.delete('nodes', nodeKeyID);
+								delete knownNodes[nodeKeyID];
+								DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+							}
+						} else {
+							var myAddr = config.host + ':' + config.port;
+							var jsonCommand = {	url: myAddr };
+							var encrypted = await sPGPs.encryptMessage(JSON.stringify(jsonCommand), sPGPs.publicKeyArmored, true);
+							passMessageOneNode({handshake: encrypted});
+							DB.write('nodes', nodeKeyID, infoNode.publicKey);
+							knownNodes[nodeKeyID].url = options.host + ':' + options.port;
+							knownNodes[nodeKeyID].ping = pingTime;
+							DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+							console.log('\x1b[1m%s\x1b[0m', 'New node:', nodeKeyID, knownNodes[nodeKeyID].url, `(${knownNodes[nodeKeyID].ping} ms)`);
+						}
+					}
+				}
+			}
+		}
+	} catch(e) {
+		console.log(e);
+	}
+};
+
+
+
+let parseAddr = (string) => {
+	let result = {};
+	try {
+		if (nzfunc.isIPv4withTCPportValid(string)) {
+			ip = (string).split(':');
+			result.host = ip[0];
+			result.port = ip[1];
+		} else if (nzfunc.isUrlValid(string)) {
+			url = URL.parse(string);
+			result.host = url.hostname;
+			result.port = url.port;
+		} else {
+			return false;
+		}
+		return result;
+	} catch(e) {
+		console.log(e);
+	}
+	return false;
+}
+
+
+
+let passMessageOneNode = async (obj, addr = { host: '127.0.0.1', port: '28262' }) => {
+	let options = {
+		host: addr.host,
+		port: addr.port,
+		path: '/',
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'Content-Length': (JSON.stringify(obj)).length
+		}
+	};
+	nzfunc.doRequest(options, JSON.stringify(obj));
+}
+
+
+
+let passMessageAllNodes = async (obj) => {
+	let addr = {};
+	let options = {
+		host: '',
+		port: '',
+		path: '/',
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'Content-Length': (JSON.stringify(obj)).length
+		}
+	};
+	let keys = Object.keys(knownNodes);
+	for (let i = 0, l = keys.length; i < l; i++) {
+		addr = parseAddr(knownNodes[keys[i]].url)
+		options.host = addr.host;
+		options.port = addr.port;
+		nzfunc.doRequest(options, JSON.stringify(obj));
+	}
+}

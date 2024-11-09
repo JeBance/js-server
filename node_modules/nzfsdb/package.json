@@ -1,0 +1,22 @@
+{
+  "name": "nzfsdb",
+  "version": "1.0.0",
+  "description": "Library nosql database",
+  "keywords": [ "DB", "database", "nosql", "class" ],
+  "author": {
+    "name": "Oleg Prudkov",
+    "email": "oleg.prudkov@gmail.com",
+    "url": "https://jebance.github.io"
+  },
+  "main": "index.js",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JeBance/nzfsdb.git"
+  },
+  "license": "LGPL-3.0+",
+  "bugs": {
+    "url": "https://github.com/JeBance/nzfsdb/issues"
+  },
+  "homepage": "https://jebance.github.io/nzfsdb/"
+}

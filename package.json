@@ -1,5 +1,10 @@
 {
   "dependencies": {
-    "openpgp": "^5.11.2"
+    "crypto": "^1.0.1",
+    "letsconfig": "^1.0.2",
+    "nzfsdb": "^1.0.0",
+    "nzfunc": "^1.0.0",
+    "openpgp": "^5.11.2",
+    "secure-pgp-storage": "^1.1.0"
   }
 }
