@@ -388,7 +388,7 @@ let searchingNodes = setInterval(async () => {
 
 	console.log(results);
 
-}, 5000);
+}, 10000);
 
 
 
@@ -401,10 +401,11 @@ let pingAddresses = async (address) => {
 		method: 'GET'
 	};
 	let publicKeyArmored = '';
-	try {
-		for (let i = 1, l = 255; i < l; i++) {
-			options.host = addr[0] + '.' + addr[1] + '.' + addr[2] + '.' + l;
+	for (let i = 106, l = 107; i < l; i++) {
+		try {
+			options.host = addr[0] + '.' + addr[1] + '.' + addr[2] + '.' + i;
 			options.port = '28262';
+//console.log(options.host + ':' + options.port);
 			var pingStart = new Date().getTime();
 			var res = await nzfunc.doRequest(options);
 			if (res.statusCode == 200) {
@@ -412,13 +413,19 @@ let pingAddresses = async (address) => {
 				var pingTime = pingFinish - pingStart;
 				var infoNode = JSON.parse(await nzfunc.getResponse(res));
 				if (infoNode.publicKey) {
+//console.log(infoNode);
 					var key = await sPGPs.readKey(infoNode.publicKey);
 					if (key) {
 						nodeKeyID = key.getKeyID().toHex();
+//console.log(nodeKeyID);
+//console.log(knownNodes[nodeKeyID]);
 						if (knownNodes[nodeKeyID]) {
 							publicKeyArmored = DB.read('nodes', nodeKeyID);
+//console.log(publicKeyArmored);
 							if (publicKeyArmored === infoNode.publicKey) {
+//console.log(pingTime);
 								knownNodes[nodeKeyID].ping = pingTime;
+console.log(knownNodes[nodeKeyID].ping);
 							} else {
 								console.log('\x1b[1m%s\x1b[0m', 'Node removed:', nodeKeyID, knownNodes[nodeKeyID].url);
 								DB.delete('nodes', nodeKeyID);
@@ -427,9 +434,12 @@ let pingAddresses = async (address) => {
 							}
 						} else {
 							var myAddr = config.host + ':' + config.port;
+console.log(myAddr);
 							var jsonCommand = {	url: myAddr };
-							var encrypted = await sPGPs.encryptMessage(JSON.stringify(jsonCommand), sPGPs.publicKeyArmored, true);
-							passMessageOneNode({handshake: encrypted});
+console.log(jsonCommand);
+							var encrypted = await sPGPs.encryptMessage(JSON.stringify(jsonCommand), infoNode.publicKey, true);
+console.log(encrypted);
+							passMessageOneNode({handshake: encrypted}, options);
 							DB.write('nodes', nodeKeyID, infoNode.publicKey);
 							knownNodes[nodeKeyID].url = options.host + ':' + options.port;
 							knownNodes[nodeKeyID].ping = pingTime;
@@ -438,10 +448,11 @@ let pingAddresses = async (address) => {
 						}
 					}
 				}
+//				process.exit(1);
 			}
+		} catch(e) {
+//			console.log(e);
 		}
-	} catch(e) {
-		console.log(e);
 	}
 };
 
