@@ -1,6 +1,6 @@
 {
   "name": "secure-pgp-storage",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Class on top of OpenPGP.js",
   "keywords": [ "class", "pgp", "openpgp" ],
   "author": {
