@@ -328,7 +328,7 @@ let checkingMessages = setInterval(async () => {
 }, 10000);
 
 
-
+/*
 let checkingNodes = setInterval(async () => {
 	let addr = {};
 	let options = {
@@ -363,7 +363,7 @@ let checkingNodes = setInterval(async () => {
 
 	}
 }, 10000);
-
+*/
 
 
 let searchingNodes = setInterval(async () => {
@@ -386,7 +386,7 @@ let searchingNodes = setInterval(async () => {
 		}
 	}
 
-	console.log(results);
+//	console.log(results);
 
 }, 10000);
 
@@ -401,11 +401,10 @@ let pingAddresses = async (address) => {
 		method: 'GET'
 	};
 	let publicKeyArmored = '';
-	for (let i = 106, l = 107; i < l; i++) {
-		try {
-			options.host = addr[0] + '.' + addr[1] + '.' + addr[2] + '.' + i;
-			options.port = '28262';
-//console.log(options.host + ':' + options.port);
+	for (let i = 100, l = 107; i < l; i++) {
+		options.host = addr[0] + '.' + addr[1] + '.' + addr[2] + '.' + i;
+		options.port = '28262';
+		if (config.host != options.host) try {
 			var pingStart = new Date().getTime();
 			var res = await nzfunc.doRequest(options);
 			if (res.statusCode == 200) {
@@ -413,19 +412,13 @@ let pingAddresses = async (address) => {
 				var pingTime = pingFinish - pingStart;
 				var infoNode = JSON.parse(await nzfunc.getResponse(res));
 				if (infoNode.publicKey) {
-//console.log(infoNode);
 					var key = await sPGPs.readKey(infoNode.publicKey);
 					if (key) {
 						nodeKeyID = key.getKeyID().toHex();
-//console.log(nodeKeyID);
-//console.log(knownNodes[nodeKeyID]);
 						if (knownNodes[nodeKeyID]) {
 							publicKeyArmored = DB.read('nodes', nodeKeyID);
-//console.log(publicKeyArmored);
 							if (publicKeyArmored === infoNode.publicKey) {
-//console.log(pingTime);
 								knownNodes[nodeKeyID].ping = pingTime;
-console.log(knownNodes[nodeKeyID].ping);
 							} else {
 								console.log('\x1b[1m%s\x1b[0m', 'Node removed:', nodeKeyID, knownNodes[nodeKeyID].url);
 								DB.delete('nodes', nodeKeyID);
@@ -434,21 +427,16 @@ console.log(knownNodes[nodeKeyID].ping);
 							}
 						} else {
 							var myAddr = config.host + ':' + config.port;
-console.log(myAddr);
 							var jsonCommand = {	url: myAddr };
-console.log(jsonCommand);
 							var encrypted = await sPGPs.encryptMessage(JSON.stringify(jsonCommand), infoNode.publicKey, true);
-console.log(encrypted);
 							passMessageOneNode({handshake: encrypted}, options);
 							DB.write('nodes', nodeKeyID, infoNode.publicKey);
-							knownNodes[nodeKeyID].url = options.host + ':' + options.port;
-							knownNodes[nodeKeyID].ping = pingTime;
+							knownNodes[nodeKeyID] = { url: options.host + ':' + options.port, ping: pingTime };
 							DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
 							console.log('\x1b[1m%s\x1b[0m', 'New node:', nodeKeyID, knownNodes[nodeKeyID].url, `(${knownNodes[nodeKeyID].ping} ms)`);
 						}
 					}
 				}
-//				process.exit(1);
 			}
 		} catch(e) {
 //			console.log(e);
@@ -492,7 +480,7 @@ let passMessageOneNode = async (obj, addr = { host: '127.0.0.1', port: '28262' }
 			'Content-Length': (JSON.stringify(obj)).length
 		}
 	};
-	nzfunc.doRequest(options, JSON.stringify(obj));
+	await nzfunc.doRequest(options, JSON.stringify(obj));
 }
 
 
@@ -514,6 +502,6 @@ let passMessageAllNodes = async (obj) => {
 		addr = parseAddr(knownNodes[keys[i]].url)
 		options.host = addr.host;
 		options.port = addr.port;
-		nzfunc.doRequest(options, JSON.stringify(obj));
+		await nzfunc.doRequest(options, JSON.stringify(obj));
 	}
 }

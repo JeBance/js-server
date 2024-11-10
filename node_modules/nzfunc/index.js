@@ -53,7 +53,7 @@ module.exports.isIPv4withTCPportValid = function (string) {
 	}
 };
 
-module.exports.doRequest = function (options, data = null) {
+module.exports.doRequest = async (options, data = null) => {
 	return new Promise ((resolve, reject) => {
 		let req = http.request(options);
 
@@ -70,7 +70,7 @@ module.exports.doRequest = function (options, data = null) {
 	}); 
 }
 
-module.exports.getResponse = function (res) {
+module.exports.getResponse = async (res) => {
 	return new Promise ((resolve, reject) => {
 		res.on('data', (d) => {
 			resolve(d);
