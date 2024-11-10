@@ -341,24 +341,28 @@ let checkingNodes = setInterval(async () => {
 	let keys = Object.keys(knownNodes);
 
 	for (let i = 0, l = keys.length; i < l; i++) {
-		addr = parseAddr(knownNodes[keys[i]].url)
-		options.host = addr.host;
-		options.port = addr.port;
-		let pingStart = new Date().getTime();
-		let res = await nzfunc.doRequest(options);
-		if (res.statusCode == 200) {
-			let pingFinish = new Date().getTime();
-			let pingTime = pingFinish - pingStart;
-			let infoServer = JSON.parse(await nzfunc.getResponse(res));
-			publicKeyArmored = DB.read('nodes', keys[i]);
-			if ((infoServer.publicKey) && (infoServer.publicKey === publicKeyArmored)) {
-				knownNodes[keys[i]].ping = pingTime;
-			} else {
-				console.log('\x1b[1m%s\x1b[0m', 'Node removed:', keys[i], knownNodes[keys[i]].url);
-				DB.delete('nodes', keys[i]);
-				delete knownNodes[keys[i]];
-				DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+		try {
+			addr = parseAddr(knownNodes[keys[i]].url)
+			options.host = addr.host;
+			options.port = addr.port;
+			let pingStart = new Date().getTime();
+			let res = await nzfunc.doRequest(options);
+			if (res.statusCode == 200) {
+				let pingFinish = new Date().getTime();
+				let pingTime = pingFinish - pingStart;
+				let infoServer = JSON.parse(await nzfunc.getResponse(res));
+				publicKeyArmored = DB.read('nodes', keys[i]);
+				if ((infoServer.publicKey) && (infoServer.publicKey === publicKeyArmored)) {
+					knownNodes[keys[i]].ping = pingTime;
+				} else {
+					console.log('\x1b[1m%s\x1b[0m', 'Node removed:', keys[i], knownNodes[keys[i]].url);
+					DB.delete('nodes', keys[i]);
+					delete knownNodes[keys[i]];
+					DB.write(null, 'nodes.json', JSON.stringify(knownNodes));
+				}
 			}
+		} catch(e) {
+//			console.log(e);
 		}
 
 	}
