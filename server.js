@@ -328,7 +328,7 @@ let checkingMessages = setInterval(async () => {
 }, 10000);
 
 
-/*
+
 let checkingNodes = setInterval(async () => {
 	let addr = {};
 	let options = {
@@ -363,7 +363,7 @@ let checkingNodes = setInterval(async () => {
 
 	}
 }, 10000);
-*/
+
 
 
 let searchingNodes = setInterval(async () => {
