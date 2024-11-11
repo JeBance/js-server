@@ -1,6 +1,6 @@
 {
   "name": "letsconfig",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Class for working with a configuration file",
   "keywords": [ "class", "config", "json" ],
   "author": {
