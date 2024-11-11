@@ -6,15 +6,9 @@ const process = require('process');
 const { networkInterfaces } = require('os');
 const securePGPstorage = require('secure-pgp-storage');
 const letsconfig = require('letsconfig');
+const nzfunc = require('nzfunc');
 const nzfsdb = require('nzfsdb');
-const { getProgramFiles,
-		getHASH,
-		hasJsonStructure,
-		isUrlValid,
-		isIPv4withTCPportValid,
-		doRequest,
-		getResponse } = require('nzfunc');
-const files = getProgramFiles(path);
+const files = nzfunc.getProgramFiles(path);
 const sPGPs = new securePGPstorage();
 
 const param = {
@@ -68,10 +62,10 @@ const requestListener = (async (req, res) => {
 			buffers.push(chunk);
 		}
 		const data = Buffer.concat(buffers).toString();
-		let hash = getHASH(data, 'md5');
+		let hash = nzfunc.getHASH(data, 'md5');
 
 		// command messages
-		if (hasJsonStructure(data) === true) {
+		if (nzfunc.hasJsonStructure(data) === true) {
 			res.writeHead(200);
 			res.end(JSON.stringify({result:'Data successfully received'}));
 			req = JSON.parse(data);
@@ -88,11 +82,11 @@ const requestListener = (async (req, res) => {
 						await decrypted.signatures[0].verified; // throws on invalid signature
 					}
 					// update node key
-					if (hasJsonStructure(decrypted.data) === true) {
+					if (nzfunc.hasJsonStructure(decrypted.data) === true) {
 						decrypted = JSON.parse(decrypted.data);
 						if ((decrypted.hasOwnProperty('url') === true)
-						&& ((isUrlValid(decrypted.url))
-						|| (isIPv4withTCPportValid(decrypted.url)))) {
+						&& ((nzfunc.isUrlValid(decrypted.url))
+						|| (nzfunc.isIPv4withTCPportValid(decrypted.url)))) {
 							let addr = parseAddr(decrypted.url);
 							if (addr) {
 								let options = {
@@ -102,11 +96,11 @@ const requestListener = (async (req, res) => {
 									method: 'GET'
 								};
 								let pingStart = new Date().getTime();
-								let res = await doRequest(options);
+								let res = await nzfunc.doRequest(options);
 								if (res.statusCode == 200) {
 									let pingFinish = new Date().getTime();
 									let ping = pingFinish - pingStart;
-									let info = JSON.parse(await getResponse(res));
+									let info = JSON.parse(await nzfunc.getResponse(res));
 									if (info.publicKey) {
 										let key = await sPGPs.readKey(info.publicKey);
 										if (key) {
@@ -334,11 +328,11 @@ let checkingNodes = setInterval(async () => {
 			options.host = addr.host;
 			options.port = addr.port;
 			let pingStart = new Date().getTime();
-			let req = await doRequest(options);
+			let req = await nzfunc.doRequest(options);
 			if (req.statusCode == 200) {
 				let pingFinish = new Date().getTime();
 				let ping = pingFinish - pingStart;
-				let info = JSON.parse(await getResponse(req));
+				let info = JSON.parse(await nzfunc.getResponse(req));
 				let checkExists = DB.stat(DB.path + 'nodes/' + keys[i]);
 				if (checkExists) {
 					publicKeyArmored = DB.read('nodes', keys[i]);
@@ -371,8 +365,8 @@ let checkingNodes = setInterval(async () => {
 let getKnownNodes = async (options) => {
 	try {
 		options.path = '/getNodes';
-		let req = await doRequest(options);
-		let list = JSON.parse(await getResponse(req));
+		let req = await nzfunc.doRequest(options);
+		let list = JSON.parse(await nzfunc.getResponse(req));
 		let keys = Object.keys(listNodes);
 		for (let i = 0, l = keys.length; i < l; i++) {
 			if (!knownNodes[keys[i]]) knownNodes[keys[i]] = { url: list[keys[i]].url, ping: list[keys[i]].ping };
@@ -424,11 +418,11 @@ let pingAddresses = async (address) => {
 		options.port = '28262';
 		if (config.host != options.host) try {
 			var pingStart = new Date().getTime();
-			var req = await doRequest(options);
+			var req = await nzfunc.doRequest(options);
 			if (req.statusCode == 200) {
 				var pingFinish = new Date().getTime();
 				var ping = pingFinish - pingStart;
-				var info = JSON.parse(await getResponse(req));
+				var info = JSON.parse(await nzfunc.getResponse(req));
 				if (info.publicKey) {
 					var key = await sPGPs.readKey(info.publicKey);
 					if (key) {
@@ -464,11 +458,11 @@ let pingAddresses = async (address) => {
 let parseAddr = (string) => {
 	let result = {};
 	try {
-		if (isIPv4withTCPportValid(string)) {
+		if (nzfunc.isIPv4withTCPportValid(string)) {
 			ip = (string).split(':');
 			result.host = ip[0];
 			result.port = ip[1];
-		} else if (isUrlValid(string)) {
+		} else if (nzfunc.isUrlValid(string)) {
 			url = URL.parse(string);
 			result.host = url.hostname;
 			result.port = url.port;
@@ -496,7 +490,7 @@ let sendMessageToOneNode = async (obj, addr = { host: '127.0.0.1', port: '28262'
 				'Content-Length': (JSON.stringify(obj)).length
 			}
 		};
-		await doRequest(options, JSON.stringify(obj));
+		await nzfunc.doRequest(options, JSON.stringify(obj));
 	} catch(e) {
 		console.log(e);
 	}
@@ -521,7 +515,7 @@ let sendMessageToAllNodes = async (obj) => {
 		addr = parseAddr(knownNodes[keys[i]].url)
 		options.host = addr.host;
 		options.port = addr.port;
-		await doRequest(options, JSON.stringify(obj));
+		await nzfunc.doRequest(options, JSON.stringify(obj));
 	}
 }
 
