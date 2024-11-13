@@ -152,6 +152,7 @@ const requestListener = (async (req, res) => {
 				if (((await PGP.checkMessage(req.newMessage.message)) === true)
 				&& (req.newMessage.timestamp > (currentTime - 900000))
 				&& ((req.newMessage.timestamp + inequal) < currentTime)) {
+					console.log('\x1b[1m%s\x1b[0m', 'New message:', req.newMessage.hash + ':', req.newMessage.timestamp);
 					knownMessages[req.newMessage.hash] = req.newMessage.timestamp;
 					await DB.write('messages', req.newMessage.hash, req.newMessage.message);
 					await DB.write(null, 'messages.json', JSON.stringify(knownMessages));
@@ -171,7 +172,7 @@ const requestListener = (async (req, res) => {
 		} else if ((await PGP.checkMessage(data)) === true) {
 			res.writeHead(200);
 			res.end(JSON.stringify({result:'Data successfully received'}));
-			if (!knownMessages[hash]) {
+			if (knownMessages[hash] === undefined) {
 				console.log('\x1b[1m%s\x1b[0m', 'New message:', hash + ':', nonce);
 				knownMessages[hash] = nonce;
 				await DB.write('messages', hash, data);
