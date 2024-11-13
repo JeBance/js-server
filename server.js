@@ -118,7 +118,7 @@ const requestListener = (async (req, res) => {
 											keyID: newSenderKeyID,
 											host: decrypted.host,
 											port: decrypted.port,
-											ping: ping,
+											ping: info.ping,
 											publicKey: info.publicKey
 										});
 									}
