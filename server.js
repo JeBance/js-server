@@ -142,16 +142,23 @@ const requestListener = (async (req, res) => {
 			&& ((await DB.validateName(req.newMessage.hash)) === true)
 			&& (Number.isInteger(req.newMessage.timestamp))
 			&& (req.newMessage.hash === getHASH(req.newMessage.message, 'md5'))
-			&& (!knownMessages[req.newMessage.hash])) {
+			&& (knownMessages[req.newMessage.hash] === undefined)) {
 				let currentTime = new Date().getTime();
+				let infoNode = await NODE.getInfo({
+					host: req.newMessage.host,
+					port: req.newMessage.port
+				});
+				let inequal = currentTime - (infoNode.time + infoNode.ping);
 				if (((await PGP.checkMessage(req.newMessage.message)) === true)
 				&& (req.newMessage.timestamp > (currentTime - 900000))
-				&& (req.newMessage.timestamp < currentTime)) {
+				&& ((req.newMessage.timestamp + inequal) < currentTime)) {
 					knownMessages[req.newMessage.hash] = req.newMessage.timestamp;
 					await DB.write('messages', req.newMessage.hash, req.newMessage.message);
 					await DB.write(null, 'messages.json', JSON.stringify(knownMessages));
 					await NODE.sendMessageToAll({
 						newMessage: {
+							host: config.host,
+							port: config.port,
 							hash: req.newMessage.hash,
 							timestamp: req.newMessage.timestamp,
 							message: req.newMessage.message
@@ -171,6 +178,8 @@ const requestListener = (async (req, res) => {
 				await DB.write(null, 'messages.json', JSON.stringify(knownMessages));
 				await NODE.sendMessageToAll({
 					newMessage: {
+						host: config.host,
+						port: config.port,
 						hash: hash,
 						timestamp: nonce,
 						message: data
@@ -207,6 +216,7 @@ const requestListener = (async (req, res) => {
 				let info = JSON.stringify({
 					host: config.host,
 					port: config.port,
+					time: new Date().getTime(),
 					fingerprint: PGP.fingerprint,
 					publicKey: PGP.publicKeyArmored
 				});
