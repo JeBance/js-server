@@ -89,49 +89,50 @@ const requestListener = (async (req, res) => {
 
 			// handshake
 			if (req.hasOwnProperty('handshake') === true) {
-				let decrypted = await PGP.decryptMessage(req.handshake);
-
-				if (decrypted) try {
-					let senderKeyID, senderPublicKeyArmored;
-					senderKeyID = decrypted.signatures[0].keyID.toHex();
-					if (NODE.nodes[senderKeyID]) {
-						senderPublicKeyArmored = DB.read('nodes', senderKeyID);
-						decrypted = await PGP.decryptMessage(req.handshake, senderPublicKeyArmored);
-						await decrypted.signatures[0].verified; // throws on invalid signature
-					}
-					// update node key
-					if (hasJsonStructure(decrypted.data) === true) {
-						decrypted = JSON.parse(decrypted.data);
-						if ((decrypted.hasOwnProperty('host') === true)
-						&& (decrypted.hasOwnProperty('port') === true)) {
-							let info = await NODE.getInfo({
-								host: decrypted.host,
-								port: decrypted.port
-							});
-							if (info.publicKey) {
-								let key = await PGP.readKey(info.publicKey);
-								if (key) {
-									newSenderKeyID = key.getKeyID().toHex();
-									if (((NODE.nodes[senderKeyID]) && (senderKeyID !== newSenderKeyID))
-									|| (!NODE.nodes[senderKeyID])) {
-										await NODE.add({
-											keyID: newSenderKeyID,
-											host: decrypted.host,
-											port: decrypted.port,
-											ping: info.ping,
-											publicKey: info.publicKey
-										});
-									}
-									if ((NODE.nodes[senderKeyID])
-									&& (senderKeyID !== newSenderKeyID)) {
-										await NODE.remove(senderKeyID);
+				try {
+					let decrypted = await PGP.decryptMessage(req.handshake);
+					if (decrypted) {
+						let senderKeyID, senderPublicKeyArmored;
+						senderKeyID = decrypted.signatures[0].keyID.toHex();
+						if (NODE.nodes[senderKeyID]) {
+							senderPublicKeyArmored = DB.read('nodes', senderKeyID);
+							decrypted = await PGP.decryptMessage(req.handshake, senderPublicKeyArmored);
+							await decrypted.signatures[0].verified; // throws on invalid signature
+						}
+						// update node key
+						if (hasJsonStructure(decrypted.data) === true) {
+							decrypted = JSON.parse(decrypted.data);
+							if ((decrypted.hasOwnProperty('host') === true)
+							&& (decrypted.hasOwnProperty('port') === true)) {
+								let info = await NODE.getInfo({
+									host: decrypted.host,
+									port: decrypted.port
+								});
+								if (info.publicKey) {
+									let key = await PGP.readKey(info.publicKey);
+									if (key) {
+										newSenderKeyID = key.getKeyID().toHex();
+										if (((NODE.nodes[senderKeyID]) && (senderKeyID !== newSenderKeyID))
+										|| (!NODE.nodes[senderKeyID])) {
+											await NODE.add({
+												keyID: newSenderKeyID,
+												host: decrypted.host,
+												port: decrypted.port,
+												ping: info.ping,
+												publicKey: info.publicKey
+											});
+										}
+										if ((NODE.nodes[senderKeyID])
+										&& (senderKeyID !== newSenderKeyID)) {
+											await NODE.remove(senderKeyID);
+										}
 									}
 								}
 							}
 						}
 					}
 				} catch(e) {
-					console.log(e);
+//					console.log(e);
 				}
 
 			// newMessage
@@ -143,28 +144,32 @@ const requestListener = (async (req, res) => {
 			&& (Number.isInteger(req.newMessage.timestamp))
 			&& (req.newMessage.hash === getHASH(req.newMessage.message, 'md5'))
 			&& (knownMessages[req.newMessage.hash] === undefined)) {
-				let currentTime = new Date().getTime();
-				let infoNode = await NODE.getInfo({
-					host: req.newMessage.host,
-					port: req.newMessage.port
-				});
-				let inequal = currentTime - (infoNode.time + infoNode.ping);
-				if (((await PGP.checkMessage(req.newMessage.message)) === true)
-				&& (req.newMessage.timestamp > (currentTime - 900000))
-				&& ((req.newMessage.timestamp + inequal) < currentTime)) {
-					console.log('\x1b[1m%s\x1b[0m', 'New message:', req.newMessage.hash + ':', req.newMessage.timestamp);
-					knownMessages[req.newMessage.hash] = req.newMessage.timestamp;
-					await DB.write('messages', req.newMessage.hash, req.newMessage.message);
-					await DB.write(null, 'messages.json', JSON.stringify(knownMessages));
-					await NODE.sendMessageToAll({
-						newMessage: {
-							host: config.host,
-							port: config.port,
-							hash: req.newMessage.hash,
-							timestamp: req.newMessage.timestamp,
-							message: req.newMessage.message
-						}
+				try {
+					let currentTime = new Date().getTime();
+					let infoNode = await NODE.getInfo({
+						host: req.newMessage.host,
+						port: req.newMessage.port
 					});
+					let inequal = currentTime - (infoNode.time + infoNode.ping);
+					if (((await PGP.checkMessage(req.newMessage.message)) === true)
+					&& (req.newMessage.timestamp > (currentTime - 900000))
+					&& ((req.newMessage.timestamp + inequal) < currentTime)) {
+						console.log('\x1b[1m%s\x1b[0m', 'New message:', req.newMessage.hash + ':', req.newMessage.timestamp);
+						knownMessages[req.newMessage.hash] = req.newMessage.timestamp;
+						await DB.write('messages', req.newMessage.hash, req.newMessage.message);
+						await DB.write(null, 'messages.json', JSON.stringify(knownMessages));
+						await NODE.sendMessageToAll({
+							newMessage: {
+								host: config.host,
+								port: config.port,
+								hash: req.newMessage.hash,
+								timestamp: req.newMessage.timestamp,
+								message: req.newMessage.message
+							}
+						});
+					}
+				} catch(e) {
+//					console.log(e);
 				}
 			}
 
