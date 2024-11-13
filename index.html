@@ -56,13 +56,13 @@
 				document.getElementById('count').textContent = 'Number of known nodes: ' + keys.length;
 				let list = '';
 				for (let i = 0, l = keys.length; i < l; i++) {
-					list = list + '<br>' + keys[i] + ' / ' + nodes[keys[i]].url + ' / ' + nodes[keys[i]].ping;
+					list = list + '<br>' + keys[i] + ' / ' + nodes[keys[i]].host + ':' + nodes[keys[i]].port + ' / ' + nodes[keys[i]].ping;
 				}
 				document.getElementById('nodes').innerHTML = 'Nodes:' + list;
 			} else {
 				alert("Error: " + response.status);
 			}
-    	}, 5000)();
+    	}, 1000);
     </script>
 </body>
 
